@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "proxy": {
+    "listen_host": "127.0.0.1",
+    "listen_port": 8888,
+    "upstream_url": "http://127.0.0.1:8890",
+    "upstream_key_file": "keys/upstream.key"
+  },
+  "banks": {
+    "client-a": {
+      "key_file": "keys/bank-client-a.key",
+      "roots": ["~/code/client-a", "~/code/client-a-tools"]
+    },
+    "home": {
+      "key_file": "keys/bank-home.key",
+      "roots": ["~/code/home", "~/notes"]
+    }
+  },
+  "import": {
+    "mnemopi_root": null,
+    "exclude_labels": [],
+    "allow_link_prefixes": []
+  }
+}

@@ -1,0 +1,21 @@
+# Paths that may appear in the published tree of omp-hindsight-guard. Anything else fails the check.
+README.md
+LICENSE
+SECURITY.md
+CHANGELOG.md
+.gitignore
+banks.example.json
+pyproject.toml
+.github/workflows/*.yml
+docs/*.md
+src/omp_hindsight_guard/*.py
+src/omp_hindsight_guard/hooks/*
+src/omp_hindsight_guard/scripts/*
+tests/*.py
+tools/public-tree-check/*
+.dockerignore
+tools/container-test/*
+CONTRIBUTING.md
+.github/CODEOWNERS
+.github/PULL_REQUEST_TEMPLATE.md
+.github/ISSUE_TEMPLATE/*.yml

@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "language-model": [
+      "docs/server-setup.md",
+      "docs/threat-model.md"
+    ]
+  },
+  "reasons": {
+    "language-model": "Hindsight, the server this plugin fronts, calls an LLM for extraction and consolidation; these two documents describe that product behaviour and its risks (server-setup: the provider settings; threat-model: prompt injection through recalled memory)."
+  }
+}
