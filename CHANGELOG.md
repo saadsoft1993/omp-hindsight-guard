@@ -3,6 +3,13 @@
 All notable changes are recorded here. The project follows semantic versioning; while it is `0.x`, minor versions
 may change configuration or behaviour, and the change is listed here.
 
+## 0.1.1 - 2026-11-12
+
+- `doctor`: on a machine where nothing listens at the default proxy address (`127.0.0.1:8888`, connection refused) and
+  no `--proxy-url` was given, it now prints `no proxy answered at <url>; pass --proxy-url or set it in banks.json` as a
+  warning instead of a failure, and says the isolation checks were not run. A proxy that answers badly, or a refused
+  address given with `--proxy-url` or set in `banks.json`, still fails.
+
 ## 0.1.0 - 2026-11-11
 
 First version of the toolkit.

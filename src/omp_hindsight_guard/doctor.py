@@ -39,6 +39,8 @@ from omp_hindsight_guard.routing import expand_root, routes_path, routes_table
 
 TIMEOUT = 5
 UNKNOWN_BANK = "doctor-no-such-bank"
+# What ProxySettings.local_url gives when banks.json sets no listen host or port.
+DEFAULT_PROXY_URL = "http://127.0.0.1:8888"
 
 
 @dataclasses.dataclass
@@ -67,6 +69,17 @@ def http_status(url: str, key: str | None = None) -> int:
 		return err.code
 	except (urllib.error.URLError, OSError, ValueError):
 		return 0
+
+
+def connection_refused(url: str) -> bool:
+	"""True when nothing listens at the address of `url`: the connection is refused (a timeout or a bad answer is not)."""
+	try:
+		with _opener.open(urllib.request.Request(url), timeout=TIMEOUT):
+			return False
+	except urllib.error.URLError as err:
+		return isinstance(err.reason, ConnectionRefusedError)
+	except (OSError, ValueError):
+		return False
 
 
 def _mode(path: Path) -> int:
@@ -180,7 +193,7 @@ def check_static(
 	return out, keys
 
 
-def check_live(config: Config, keys: Keys, proxy_url: str) -> list[Result]:
+def check_live(config: Config, keys: Keys, proxy_url: str, default_url: bool = False) -> list[Result]:
 	out: list[Result] = []
 	proxy_url = proxy_url.rstrip("/")
 	try:
@@ -198,6 +211,23 @@ def check_live(config: Config, keys: Keys, proxy_url: str) -> list[Result]:
 		)
 	health = http_status(f"{proxy_url}/health/ready")
 	if health != 200:
+		if (
+			default_url
+			and health == 0
+			and proxy_url == DEFAULT_PROXY_URL
+			and connection_refused(f"{proxy_url}/health/ready")
+		):
+			# Nothing listens at the built-in default: most likely the proxy runs elsewhere (or not on this machine at all).
+			# That is a hint, not a broken setup, so it does not fail the run.
+			out.append(
+				Result(
+					"warn",
+					"proxy",
+					f"no proxy answered at {proxy_url}; pass --proxy-url or set it in banks.json "
+					"(the isolation checks were not run)",
+				)
+			)
+			return out
 		out.append(
 			Result("fail", "proxy /health/ready", f"{proxy_url} answered {health or 'nothing'}, expected 200")
 		)
@@ -320,7 +350,9 @@ def run_doctor(
 		if keys is None:
 			results.append(Result("fail", "proxy checks", "skipped: the keys could not be loaded"))
 		else:
-			results += check_live(config, keys, proxy_url or config.proxy.local_url)
+			results += check_live(
+				config, keys, proxy_url or config.proxy.local_url, default_url=proxy_url is None
+			)
 	if backup_dir is not None:
 		results += check_backup(backup_dir, backup_max_age_hours, config)
 	for r in results:

@@ -150,6 +150,75 @@ def test_a_proxy_that_is_down_fails(setup):
 	assert code == 1 and any("proxy /health/ready" in line for line in lines(text, "fail"))
 
 
+@pytest.fixture
+def default_port_setup(tmp_path, scratch_home, monkeypatch):
+	"""A configuration that uses the built-in proxy address, moved to a free port so the test does not depend on 8888."""
+	port = free_port()
+	monkeypatch.setattr(doctor, "DEFAULT_PROXY_URL", f"http://127.0.0.1:{port}", raising=False)
+	cfg_dir = tmp_path / "cfg-default"
+	config = make_setup(cfg_dir, {"alpha": ["/srv/alpha"]}, listen_port=port)
+	overlays.write_overlays(config, cfg_dir / "overlays")
+	return config, {ENV_CONFIG_DIR: str(cfg_dir)}, port
+
+
+def test_no_proxy_at_the_default_address_is_a_hint_and_not_a_failure(default_port_setup):
+	config, env, port = default_port_setup
+	code, text = check(config, env)
+	assert code == 0, text
+	assert lines(text, "fail") == []
+	hint = lines(text, "warn")
+	assert any(
+		f"no proxy answered at http://127.0.0.1:{port}; pass --proxy-url or set it in banks.json" in line
+		for line in hint
+	), text
+	assert "/health/ready" not in text and "0 failure(s)" in text
+
+
+def test_an_address_given_with_proxy_url_that_refuses_is_still_a_failure(default_port_setup):
+	config, env, port = default_port_setup
+	code, text = check(config, env, proxy_url=f"http://127.0.0.1:{port}")
+	assert code == 1 and any("proxy /health/ready" in line for line in lines(text, "fail")), text
+	assert not any("no proxy answered" in line for line in text.splitlines())
+
+
+def test_a_listener_at_the_default_address_that_answers_badly_is_still_a_failure(default_port_setup):
+	import socket
+	import threading
+
+	config, env, port = default_port_setup
+	server = socket.socket()
+	server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	server.bind(("127.0.0.1", port))
+	server.listen(1)
+
+	def serve():
+		conn, _ = server.accept()
+		conn.recv(4096)
+		conn.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+		conn.close()
+
+	thread = threading.Thread(target=serve, daemon=True)
+	thread.start()
+	try:
+		code, text = check(config, env)
+	finally:
+		server.close()
+		thread.join(5)
+	assert code == 1, text
+	assert any("answered 503" in line for line in lines(text, "fail")), text
+	assert not any("no proxy answered" in line for line in text.splitlines())
+
+
+def test_an_address_set_in_banks_json_that_refuses_is_still_a_failure(tmp_path, scratch_home):
+	# The built-in default stays 8888; this configuration chose another port itself, so nothing listening there is a real failure.
+	port = free_port()
+	config = make_setup(tmp_path / "cfg-chosen", {"alpha": ["/srv/alpha"]}, listen_port=port)
+	code, text = check(config, {ENV_CONFIG_DIR: str(tmp_path / "cfg-chosen")})
+	assert code == 1, text
+	assert any(f"http://127.0.0.1:{port} answered nothing" in line for line in lines(text, "fail")), text
+	assert not any("no proxy answered" in line for line in text.splitlines())
+
+
 def test_a_proxy_without_one_of_the_banks_fails_that_bank_only(setup):
 	config, env, _ = setup
 	partial = Stack(config, only_banks=("alpha", "beta", "gamma"))  # delta is not configured in the proxy

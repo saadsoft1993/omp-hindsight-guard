@@ -103,7 +103,9 @@ against whom, what it does not defend, and where each control lives and is teste
 Hindsight's own key is `401` on every bank (a remote proxy is never sent Hindsight's key: that probe is skipped, the
 report says so, and the isolation line does not claim it); each bank's key reads its own bank (`200`), gets `404` on
 every other configured bank, on an unconfigured bank name, and on `/docs`. It fails on a proxy that checks no keys
-(tested by pointing it at the bare upstream) and on a bank missing from the proxy. It prints no key. With
+(tested by pointing it at the bare upstream) and on a bank missing from the proxy. It prints no key. When nothing listens (connection refused) at the built-in default `http://127.0.0.1:8888` and no
+`--proxy-url` was given, it prints a warning that says no proxy answered and that the isolation checks were not run,
+and exits `0`: the warning is not evidence that isolation holds. Any other unreachable or badly answering proxy fails. With
 `--backup-dir` it fails when the newest dump is too old, when a bank's newest export is older than 8 days, and, once
 backups began (the date `backup.sh` recorded once in `.first-run`, else the oldest dump still there) more than 8 days
 ago, when a bank has no export at all (until then it only warns).

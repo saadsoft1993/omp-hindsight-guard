@@ -209,7 +209,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 	for name in ("doctor", "check"):
 		p = sub.add_parser(name, help="check configuration, overlays and per-bank key isolation")
-		p.add_argument("--proxy-url", help="proxy to test (default: the loopback address from banks.json)")
+		p.add_argument(
+			"--proxy-url",
+			help="proxy to test (default: the loopback address from banks.json, http://127.0.0.1:8888 unless it sets another)",
+		)
 		p.add_argument("--offline", action="store_true", help="skip the checks that talk to the proxy")
 		p.add_argument("--backup-dir", type=Path, help="also require a recent hindsight-*.dump here")
 		p.add_argument("--backup-max-age-hours", type=float, default=26)

@@ -148,7 +148,9 @@ Practise a restore into a scratch database once.
 2. Upgrade (`uv tool install hindsight-api==<new> --python 3.13 --force`; reinstall this tool the way you
    installed it, with `--force`).
 3. Restart; check `/health/ready`.
-4. `omp-hindsight-guard doctor`. It must show every bank passing its isolation check.
+4. `omp-hindsight-guard doctor`. It must show every bank passing its isolation check. On a machine with no proxy at
+   the default `127.0.0.1:8888` it only warns (`no proxy answered at <url>; pass --proxy-url or set it in
+   banks.json`); run it where the proxy is, or pass `--proxy-url`, to get the isolation checks.
 5. Run the **redaction canary**: send fake credentials through the proxy (`omp-hindsight-guard redact` shows what the
    patterns catch; build the fakes at run time and never paste real ones), then
    `omp-hindsight-guard canary-count <fake>` must print `none` for every needle.

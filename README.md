@@ -63,7 +63,16 @@ omp-hindsight-guard overlays
 
 # 5. Check everything, including that each key can only reach its own bank.
 omp-hindsight-guard doctor      # a bank shows a warning until its first write: Hindsight creates a bank on first use
+```
 
+`doctor` looks for the proxy at the address in `banks.json` (`127.0.0.1:8888` unless you set another). On a machine
+where no proxy runs, for example a laptop whose proxy lives on a server, it prints a warning, not a failure:
+`no proxy answered at http://127.0.0.1:8888; pass --proxy-url or set it in banks.json`. Pass
+`--proxy-url https://your-proxy.example` (or set `proxy.listen_host` / `proxy.listen_port`) to run the live isolation
+checks. A proxy that answers with anything other than `200` on `/health/ready`, or a refusing address you chose
+yourself, is still a failure.
+
+```sh
 # 6. Opt in to folder-based banks (pick ONE of the ways in docs/hooks.md), for example for zsh:
 omp-hindsight-guard hook zsh --install        # shows the line and asks before appending it to ~/.zshrc
 ```
