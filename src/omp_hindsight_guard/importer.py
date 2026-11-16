@@ -793,6 +793,7 @@ def report(
 	sync: tuple[int, int],
 	notes: Sequence[tuple[Row, list[str]]] = (),
 	pending_docs: int = 0,
+	ledger: Ledger | None = None,
 ) -> None:
 	reasons = {r.key: reason for r, reason in skipped}
 	for row in sorted(rows, key=lambda r: r.key):
@@ -801,7 +802,8 @@ def report(
 			f"{row.label}\t{row.table}\t{row.id}\t-> {row.bank or '-'}\t{row.tag}\t"
 			f"len={len(row.content)}\tredactions={fmt_counts(row.redactions)}\t"
 			f"residual={fmt_counts(residual_counts([row]))}\t{reasons.get(row.key, 'send')}"
-			+ (f"\tflags={flags}" if flags else ""),
+			+ (f"\tflags={flags}" if flags else "")
+			+ f"\tsha={content_hash(row.content)}\tstate={'synced' if ledger is not None and synced(row, ledger) else 'waiting'}",
 			file=out,
 		)
 	for row in sorted((r for r in rows if r.review), key=lambda r: r.key):
@@ -1303,6 +1305,7 @@ def _main(
 		(len(chosen) - unsynced, unsynced),
 		notes,
 		len(ledger.pending),
+		ledger,
 	)
 	current = digest(requests)
 
