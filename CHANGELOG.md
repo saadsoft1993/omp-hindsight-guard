@@ -3,6 +3,11 @@
 All notable changes are recorded here. The project follows semantic versioning; while it is `0.x`, minor versions
 may change configuration or behaviour, and the change is listed here.
 
+## Unreleased
+
+- `overlays`: generated overlays use `recallTimeoutMs: 8000`, `requestTimeoutMs: 15000` and `retainTimeoutMs: 15000`,
+  which suit a server reached over the network.
+
 ## 0.1.1 - 2026-11-12
 
 - `doctor`: on a machine where nothing listens at the default proxy address (`127.0.0.1:8888`, connection refused) and

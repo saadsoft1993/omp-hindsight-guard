@@ -34,9 +34,9 @@ hindsight:
   bankId: {bank_id}
   scoping: per-project-tagged
   globalScope: false
-  recallTimeoutMs: 5000
-  requestTimeoutMs: 10000
-  retainTimeoutMs: 10000
+  recallTimeoutMs: 8000
+  requestTimeoutMs: 15000
+  retainTimeoutMs: 15000
 """
 )
 _UNSAFE_URL = re.compile(r"[\x00-\x20\x7f\\]")

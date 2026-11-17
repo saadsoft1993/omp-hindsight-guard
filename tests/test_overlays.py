@@ -53,6 +53,14 @@ def test_the_url_is_an_argument(setup):
 	assert yaml.safe_load((out / "beta.yml").read_text())["hindsight"]["apiUrl"] == "http://localhost:9000"
 
 
+def test_overlay_timeouts_suit_a_remote_server(setup):
+	config, out = setup
+	overlays.write_overlays(config, out, "https://memory.example:8898")
+	lines = (out / "alpha.yml").read_text().splitlines(keepends=True)
+	for line in ("  recallTimeoutMs: 8000\n", "  requestTimeoutMs: 15000\n", "  retainTimeoutMs: 15000\n"):
+		assert line in lines
+
+
 @pytest.mark.parametrize(
 	"url",
 	["http://memory.example:8898", "ftp://x", "memory.example", "http://", "https://", "file:///etc/passwd"],
