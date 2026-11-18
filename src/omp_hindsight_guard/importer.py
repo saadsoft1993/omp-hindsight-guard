@@ -1320,7 +1320,7 @@ def _main(
 		help="print only unsynced=<n> (rows to send that the ledger lacks) and exit",
 	)
 	args = parser.parse_args(argv)
-	if args.since:
+	if args.since is not None:
 		try:
 			since = dt.datetime.fromisoformat(args.since.replace("Z", "+00:00"))
 		except ValueError:

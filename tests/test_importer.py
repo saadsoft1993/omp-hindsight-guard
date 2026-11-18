@@ -1272,6 +1272,16 @@ def test_since_uses_creation_time_and_fails_closed_on_missing_or_invalid(world):
 		run_main(world, "--unattended", "--since", "not-a-time")
 
 
+def test_unattended_rejects_empty_since_without_sending(world, capsys):
+	write_overlays(world["overlays"])
+	opener = FakeOpener()
+	with pytest.raises(SystemExit) as exc:
+		run_main(world, "--unattended", "--since", "", opener=opener)
+	assert exc.value.code == 2
+	assert "--since must be an ISO-8601 date and time" in capsys.readouterr().err
+	assert opener.requests == []
+
+
 def test_unattended_import_with_no_proxy_upstream_key(world):
 	config = json.loads(world["config"].read_text())
 	del config["proxy"]["upstream_key_file"]
