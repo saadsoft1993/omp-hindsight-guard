@@ -367,7 +367,9 @@ def test_final_inherited_tags_are_scanned_before_quarantine(world):
 	entries = json.loads(quarantine.read_text())["rows"]
 	assert {entry["table"] for entry in entries} == {"working_memory", "episodic_memory"}
 	assert len(entries) == 2
-	assert all(entry["findings"] == [{"kind": "high-entropy", "field": "tag", "offset": 8}] for entry in entries)
+	assert all(
+		entry["findings"] == [{"kind": "high-entropy", "field": "tag", "offset": 8}] for entry in entries
+	)
 
 
 def row(label, table, id_, bank, tag, content):
