@@ -1082,7 +1082,9 @@ def test_unattended_quarantines_residual_documents_and_exports_only_clean(world)
 	code, text = run_main(world, "--unattended", opener=opener)
 	assert code == im.EXIT_QUARANTINE
 	assert "quarantined=1" in text
-	assert all("shared clean content" not in r.data.decode() and MARK not in r.data.decode() for r in opener.requests)
+	assert all(
+		"shared clean content" not in r.data.decode() and MARK not in r.data.decode() for r in opener.requests
+	)
 	(summary,) = [world["state"] / "last-run.json"]
 	counts = json.loads(summary.read_text())
 	assert counts == {"sent": 4, "quarantined": 1, "pending": 0}
@@ -1114,10 +1116,15 @@ def test_unattended_quarantines_residual_documents_and_exports_only_clean(world)
 
 def test_unattended_quarantines_conflicts_without_blocking_other_documents(world):
 	write_overlays(world["overlays"])
-	seed_ledger(world, im.Ledger(sources={
-		"webapp-3tntylzrz3coh:w:a5": "alpha",
-		"other-zzz:w:o1": "alpha",
-	}))
+	seed_ledger(
+		world,
+		im.Ledger(
+			sources={
+				"webapp-3tntylzrz3coh:w:a5": "alpha",
+				"other-zzz:w:o1": "alpha",
+			}
+		),
+	)
 	opener = FakeOpener()
 	code, _ = run_main(world, "--unattended", opener=opener)
 	assert code == im.EXIT_QUARANTINE
@@ -1128,7 +1135,8 @@ def test_unattended_quarantines_conflicts_without_blocking_other_documents(world
 	(quarantine,) = (world["state"] / "quarantine").glob("*.json")
 	rows = json.loads(quarantine.read_text())["rows"]
 	assert {finding["kind"] for row in rows for finding in row["findings"]} == {
-		"ledger-source", "ledger-unrouted"
+		"ledger-source",
+		"ledger-unrouted",
 	}
 
 
@@ -1144,7 +1152,9 @@ def test_unattended_busy_and_failure_cannot_report_success(world):
 	code, _ = run_main(world, "--unattended", opener=opener)
 	assert code == 1
 	assert json.loads((world["state"] / "last-run.json").read_text()) == {
-		"sent": 0, "quarantined": 0, "pending": 0
+		"sent": 0,
+		"quarantined": 0,
+		"pending": 0,
 	}
 
 
@@ -1158,7 +1168,9 @@ def test_unattended_reconciles_before_retrying_pending_documents(world):
 	code, _ = run_main(world, "--unattended", opener=second)
 	assert code == 0 and second.requests == [] and second.gets
 	assert json.loads((world["state"] / "last-run.json").read_text()) == {
-		"sent": 0, "quarantined": 0, "pending": 0
+		"sent": 0,
+		"quarantined": 0,
+		"pending": 0,
 	}
 
 
@@ -1168,15 +1180,33 @@ def test_since_uses_creation_time_and_fails_closed_on_missing_or_invalid(world):
 		world["root"],
 		"cutoff-fixture",
 		working=[
-			{"id": "old", "content": "old", "created_at": "2026-01-01T00:00:00Z",
-				"timestamp": "2027-01-01T00:00:00Z", "meta": {"cwd": str(world["en"])}},
-			{"id": "equal", "content": "equal", "created_at": "2026-06-01T00:00:00Z",
-				"meta": {"cwd": str(world["en"])}},
-			{"id": "new", "content": "new", "created_at": "2026-06-01T01:00:00+01:00",
-				"meta": {"cwd": str(world["en"])}},
+			{
+				"id": "old",
+				"content": "old",
+				"created_at": "2026-01-01T00:00:00Z",
+				"timestamp": "2027-01-01T00:00:00Z",
+				"meta": {"cwd": str(world["en"])},
+			},
+			{
+				"id": "equal",
+				"content": "equal",
+				"created_at": "2026-06-01T00:00:00Z",
+				"meta": {"cwd": str(world["en"])},
+			},
+			{
+				"id": "new",
+				"content": "new",
+				"created_at": "2026-06-01T01:00:00+01:00",
+				"meta": {"cwd": str(world["en"])},
+			},
 			{"id": "unknown", "content": "unknown", "meta": {"cwd": str(world["en"])}},
-			{"id": "invalid", "content": "invalid", "created_at": "invalid",
-				"timestamp": "2027-01-01T00:00:00Z", "meta": {"cwd": str(world["en"])}},
+			{
+				"id": "invalid",
+				"content": "invalid",
+				"created_at": "invalid",
+				"timestamp": "2027-01-01T00:00:00Z",
+				"meta": {"cwd": str(world["en"])},
+			},
 		],
 	)
 	conn.close()

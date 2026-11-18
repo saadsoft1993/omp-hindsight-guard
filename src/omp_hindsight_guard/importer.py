@@ -73,7 +73,14 @@ MAX_RESPONSE = 1 << 20
 # escapes) beside its metadata.
 MAX_DOCUMENT_RESPONSE = 16 << 20
 SKIP_REASONS = (
-	"skip", "review", "excluded-label", "superseded", "expired", "empty", "before-since", "unknown-time"
+	"skip",
+	"review",
+	"excluded-label",
+	"superseded",
+	"expired",
+	"empty",
+	"before-since",
+	"unknown-time",
 )
 # Characters the proxy accepts in document ids and tags.
 _UNSAFE_IDENT = re.compile(r"[^A-Za-z0-9:_.\-/@ ]")
@@ -802,24 +809,29 @@ def write_quarantine(state: Path, docs: list[Doc], conflicts: list[tuple[Row, st
 	for doc in docs:
 		for row in doc.members or [doc.row]:
 			held_keys.add(row.key)
-			entries.append({
-				"row": "@" + hashlib.sha256(json.dumps(row.key).encode()).hexdigest(),
-				"table": row.table,
-				"bank": row.bank,
-				"findings": [
-					{"kind": kind, "field": field, "offset": offset}
-					for field, kind, offset in row.residual
-				] + [{"kind": "ledger-" + why} for why in conflict_by_row[row.key]],
-			})
+			entries.append(
+				{
+					"row": "@" + hashlib.sha256(json.dumps(row.key).encode()).hexdigest(),
+					"table": row.table,
+					"bank": row.bank,
+					"findings": [
+						{"kind": kind, "field": field, "offset": offset}
+						for field, kind, offset in row.residual
+					]
+					+ [{"kind": "ledger-" + why} for why in conflict_by_row[row.key]],
+				}
+			)
 	extra = 0
 	for row, _, why in conflicts:
 		if row.key not in held_keys:
-			entries.append({
-				"row": "@" + hashlib.sha256(json.dumps(row.key).encode()).hexdigest(),
-				"table": row.table,
-				"bank": row.bank,
-				"findings": [{"kind": "ledger-" + why}],
-			})
+			entries.append(
+				{
+					"row": "@" + hashlib.sha256(json.dumps(row.key).encode()).hexdigest(),
+					"table": row.table,
+					"bank": row.bank,
+					"findings": [{"kind": "ledger-" + why}],
+				}
+			)
 			held_keys.add(row.key)
 			extra += 1
 	if not entries:
@@ -1250,8 +1262,12 @@ def _main(
 	parser = argparse.ArgumentParser(prog="omp-hindsight-guard import", description=__doc__.splitlines()[0])
 	parser.add_argument("--config", type=Path, help="banks.json (default: the tool's config directory)")
 	parser.add_argument("--send", action="store_true", help="post to Hindsight (default: dry run)")
-	parser.add_argument("--unattended", action="store_true", help="send new rows and quarantine unsafe documents")
-	parser.add_argument("--since", metavar="ISO_TIME", help="only rows created at or after this time (UTC if naive)")
+	parser.add_argument(
+		"--unattended", action="store_true", help="send new rows and quarantine unsafe documents"
+	)
+	parser.add_argument(
+		"--since", metavar="ISO_TIME", help="only rows created at or after this time (UTC if naive)"
+	)
 	parser.add_argument(
 		"--confirm", metavar="DIGEST", help="digest printed by the dry run (required by --send)"
 	)
@@ -1355,6 +1371,7 @@ def _main(
 		return 2
 	counts = {"sent": 0, "quarantined": 0, "pending": len(ledger.pending)}
 	if args.unattended:
+
 		def publish_summary() -> None:
 			counts["pending"] = len(ledger.pending)
 			write_last_run(state, counts)
@@ -1380,7 +1397,9 @@ def _main(
 	ledger.store = store  # recorded with the next save
 	previous_failed = previous_unconfirmed = 0
 	if args.unattended and ledger.pending:
-		found = _load_overlays({e["bank"] for e in ledger.pending.values()}, overlays_path, strict=False) or {}
+		found = (
+			_load_overlays({e["bank"] for e in ledger.pending.values()}, overlays_path, strict=False) or {}
+		)
 		_, previous_failed, _, previous_unconfirmed = reconcile(ledger, found, real_opener, out)
 		save_ledger(ledger_path, ledger)
 	rows, empty = collect(root, home, banks, resolver, redact, scan, now)
@@ -1395,7 +1414,8 @@ def _main(
 	if args.unattended:
 		conflict_keys = {row.key for row, _, _ in conflicts}
 		quarantined = [
-			doc for doc in docs
+			doc
+			for doc in docs
 			if any(member.residual or member.key in conflict_keys for member in doc.members or [doc.row])
 		]
 		counts["quarantined"] = write_quarantine(state, quarantined, conflicts)
@@ -1495,8 +1515,10 @@ def _main(
 			f"sent={counts['sent']} quarantined={counts['quarantined']} pending={len(ledger.pending)}",
 			file=out,
 		)
-		return code or (1 if failed or unconfirmed or previous_failed or previous_unconfirmed else 0) or (
-			EXIT_QUARANTINE if counts["quarantined"] else 0
+		return (
+			code
+			or (1 if failed or unconfirmed or previous_failed or previous_unconfirmed else 0)
+			or (EXIT_QUARANTINE if counts["quarantined"] else 0)
 		)
 	return code or (1 if failed or unconfirmed else 0)
 
