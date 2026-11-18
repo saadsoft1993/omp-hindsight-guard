@@ -1060,3 +1060,153 @@ def test_send_refuses_an_overlay_whose_bank_id_differs(world):
 	code, _ = run_main(world, "--send", "--confirm", dry_digest(world), opener=opener)
 	assert code == 2 and opener.requests == []
 	assert not (world["state"] / im.LEDGER_NAME).exists()
+
+
+def test_unattended_quarantines_residual_documents_and_exports_only_clean(world):
+	write_overlays(world["overlays"])
+	conn = make_bank(
+		world["root"],
+		"unsafe-fixture",
+		working=[
+			{"id": "a", "content": "shared clean content", "meta": {"cwd": str(world["en"])}},
+			{
+				"id": "b",
+				"content": "shared clean content",
+				"source": MARK,
+				"meta": {"cwd": str(world["en"])},
+			},
+		],
+	)
+	conn.close()
+	opener = FakeOpener()
+	code, text = run_main(world, "--unattended", opener=opener)
+	assert code == im.EXIT_QUARANTINE
+	assert "quarantined=1" in text
+	assert all("shared clean content" not in r.data.decode() and MARK not in r.data.decode() for r in opener.requests)
+	(summary,) = [world["state"] / "last-run.json"]
+	counts = json.loads(summary.read_text())
+	assert counts == {"sent": 4, "quarantined": 1, "pending": 0}
+	assert stat.S_IMODE(summary.stat().st_mode) == 0o600
+	directory = world["state"] / "quarantine"
+	assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+	(quarantine,) = directory.glob("*.json")
+	assert stat.S_IMODE(quarantine.stat().st_mode) == 0o600
+	raw = quarantine.read_text()
+	assert MARK not in raw and "shared clean content" not in raw and "unsafe-fixture" not in raw
+	entries = json.loads(raw)["rows"]
+	assert len(entries) == 2 and any(row["findings"] for row in entries)
+	(export,) = (world["state"] / "exports").glob("*.jsonl")
+	assert stat.S_IMODE(export.stat().st_mode) == 0o600
+	assert MARK not in export.read_text() and "shared clean content" not in export.read_text()
+	repeat = FakeOpener()
+	code, _ = run_main(world, "--unattended", opener=repeat)
+	assert code == im.EXIT_QUARANTINE and repeat.requests == []
+	assert json.loads(summary.read_text()) == {"sent": 0, "quarantined": 1, "pending": 0}
+	conn = sqlite3.connect(world["root"] / "unsafe-fixture" / "mnemopi.db")
+	conn.execute("UPDATE working_memory SET source = 'fixed' WHERE id = 'b'")
+	conn.commit()
+	conn.close()
+	released = FakeOpener()
+	code, _ = run_main(world, "--unattended", opener=released)
+	assert code == 0 and len(sent_ids(released)) == 1
+	assert json.loads(summary.read_text()) == {"sent": 1, "quarantined": 0, "pending": 0}
+
+
+def test_unattended_quarantines_conflicts_without_blocking_other_documents(world):
+	write_overlays(world["overlays"])
+	seed_ledger(world, im.Ledger(sources={
+		"webapp-3tntylzrz3coh:w:a5": "alpha",
+		"other-zzz:w:o1": "alpha",
+	}))
+	opener = FakeOpener()
+	code, _ = run_main(world, "--unattended", opener=opener)
+	assert code == im.EXIT_QUARANTINE
+	assert len(sent_ids(opener)) == 3
+	assert all("w:a5" not in ident for ident in sent_ids(opener))
+	summary = json.loads((world["state"] / "last-run.json").read_text())
+	assert summary == {"sent": 3, "quarantined": 2, "pending": 0}
+	(quarantine,) = (world["state"] / "quarantine").glob("*.json")
+	rows = json.loads(quarantine.read_text())["rows"]
+	assert {finding["kind"] for row in rows for finding in row["findings"]} == {
+		"ledger-source", "ledger-unrouted"
+	}
+
+
+def test_unattended_busy_and_failure_cannot_report_success(world):
+	write_overlays(world["overlays"])
+	ledger_path = world["state"] / im.LEDGER_NAME
+	with im.ledger_lock(ledger_path):
+		opener = FakeOpener()
+		code, _ = run_main(world, "--unattended", opener=opener)
+		assert code == im.EXIT_BUSY and opener.requests == []
+		assert not (world["state"] / "last-run.json").exists()
+	opener = FakeOpener([422])
+	code, _ = run_main(world, "--unattended", opener=opener)
+	assert code == 1
+	assert json.loads((world["state"] / "last-run.json").read_text()) == {
+		"sent": 0, "quarantined": 0, "pending": 0
+	}
+
+
+def test_unattended_reconciles_before_retrying_pending_documents(world):
+	write_overlays(world["overlays"])
+	first = FakeOpener(op_status="processing")
+	code, _ = run_main(world, "--unattended", opener=first)
+	assert code == 0
+	assert json.loads((world["state"] / "last-run.json").read_text())["pending"] == 4
+	second = FakeOpener(op_status="completed")
+	code, _ = run_main(world, "--unattended", opener=second)
+	assert code == 0 and second.requests == [] and second.gets
+	assert json.loads((world["state"] / "last-run.json").read_text()) == {
+		"sent": 0, "quarantined": 0, "pending": 0
+	}
+
+
+def test_since_uses_creation_time_and_fails_closed_on_missing_or_invalid(world):
+	write_overlays(world["overlays"])
+	conn = make_bank(
+		world["root"],
+		"cutoff-fixture",
+		working=[
+			{"id": "old", "content": "old", "created_at": "2026-01-01T00:00:00Z",
+				"timestamp": "2027-01-01T00:00:00Z", "meta": {"cwd": str(world["en"])}},
+			{"id": "equal", "content": "equal", "created_at": "2026-06-01T00:00:00Z",
+				"meta": {"cwd": str(world["en"])}},
+			{"id": "new", "content": "new", "created_at": "2026-06-01T01:00:00+01:00",
+				"meta": {"cwd": str(world["en"])}},
+			{"id": "unknown", "content": "unknown", "meta": {"cwd": str(world["en"])}},
+			{"id": "invalid", "content": "invalid", "created_at": "invalid",
+				"timestamp": "2027-01-01T00:00:00Z", "meta": {"cwd": str(world["en"])}},
+		],
+	)
+	conn.close()
+	opener = FakeOpener()
+	code, _ = run_main(world, "--unattended", "--since", "2026-06-01T00:00:00Z", opener=opener)
+	assert code == 0
+	ids = sent_ids(opener)
+	assert any(ident.endswith(":w:equal") for ident in ids)
+	assert any(ident.endswith(":w:new") for ident in ids)
+	assert not any(ident.endswith((":w:old", ":w:unknown", ":w:invalid")) for ident in ids)
+	with pytest.raises(SystemExit):
+		run_main(world, "--unattended", "--since", "not-a-time")
+
+
+def test_unattended_import_with_no_proxy_upstream_key(world):
+	config = json.loads(world["config"].read_text())
+	del config["proxy"]["upstream_key_file"]
+	world["config"].write_text(json.dumps(config))
+	write_overlays(world["overlays"])
+	opener = FakeOpener()
+	code, _ = run_main(world, "--unattended", opener=opener)
+	assert code == 0 and len(sent_ids(opener)) == 4
+
+
+def test_unattended_unknown_send_stays_reserved(world):
+	write_overlays(world["overlays"])
+	opener = FakeOpener([urllib.error.URLError("unavailable")])
+	code, _ = run_main(world, "--unattended", opener=opener)
+	assert code == 1
+	summary = json.loads((world["state"] / "last-run.json").read_text())
+	assert summary["sent"] == 0 and summary["pending"] > 0
+	ledger = im.load_ledger(world["state"] / im.LEDGER_NAME)
+	assert len(ledger.pending) == summary["pending"]

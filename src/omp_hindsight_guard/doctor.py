@@ -118,9 +118,10 @@ def check_static(
 	except ConfigError as err:
 		out.append(Result("fail", "key files", str(err)))
 		# Narrow it down: one line per unusable key file.
-		for what, path in [("upstream", config.proxy.upstream_key_file)] + [
-			(b.name, b.key_file) for b in config.banks
-		]:
+		paths = [(b.name, b.key_file) for b in config.banks]
+		if config.proxy.upstream_key_file is not None:
+			paths.insert(0, ("upstream", config.proxy.upstream_key_file))
+		for what, path in paths:
 			try:
 				read_key(path, what)
 			except ConfigError as inner:

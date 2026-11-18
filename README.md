@@ -145,6 +145,21 @@ Memories whose text also appears in another bank are listed as `content-also-in:
 rest of the same run): that is a policy of this tool, not an isolation guarantee; read them before `--send`. Rows whose
 working folder no longer exists are held for review (`--include-review`).
 
+For a scheduled import, `omp-hindsight-guard import --unattended --since 2026-01-01T00:00:00Z`
+sends only new rows without a confirmation digest. The cutoff is inclusive: it uses `created_at`, or `timestamp`
+when creation time is absent; invalid or missing times are skipped. Use the same cutoff on every run. Unattended
+mode reconciles pending operations before and after sending and holds a whole deduplicated document if any member
+has a residual finding or a ledger conflict. Unrouted ledger conflicts are held too. Held rows remain in the local
+database and are reconsidered on each run; no local rows are deleted by this command.
+
+The state directory contains a 0600 redacted export for each send, and a 0700 `quarantine` directory with 0600
+JSON files containing only hashed row identities, table, bank and finding metadata, not memory text. Redaction and
+residual scanning are pattern-based and cannot guarantee that every secret is detected. `last-run.json` is a 0600
+counts-only summary (`sent` and `quarantined` count documents, `pending` counts ledger documents). Exit 0 means no
+quarantine or hard failure; exit 7 means some items were quarantined; exit 6 means another import holds the ledger
+lock. Other nonzero statuses indicate failure. On busy or failure, do not use `last-run.json` as the result of that
+invocation: it may belong to an earlier run. Exit 0 or 7 can still have pending asynchronous operations.
+
 ## Backups and health
 
 ```sh

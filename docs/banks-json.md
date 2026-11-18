@@ -37,7 +37,7 @@ Must be `1`.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `upstream_key_file` | required | File holding Hindsight's own API key. The proxy sends this key upstream in place of the client's key. |
+| `upstream_key_file` | none | File holding Hindsight's own API key. Required by the proxy, overlay generation and key checks; an importer-only configuration may omit it. |
 | `listen_host` | `127.0.0.1` | Address the proxy binds. `127.0.0.1`, `localhost` and `::1` are always allowed. Anything else needs `allow_remote_listen`. |
 | `listen_port` | `8888` | Port the proxy binds (1-65535). |
 | `upstream_url` | `http://127.0.0.1:8890` | Hindsight. Must be `http://` on `127.0.0.1`, `localhost` or `[::1]`: the upstream key is sent in clear text, so the proxy runs next to the server. |

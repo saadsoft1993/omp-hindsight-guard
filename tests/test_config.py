@@ -69,7 +69,6 @@ def test_a_bank_may_have_no_roots(tmp_path):
 		(lambda d: d["proxy"].update(listen_host="0.0.0.0"), "loopback"),
 		(lambda d: d["proxy"].update(listen_host="example.com"), "loopback"),
 		(lambda d: d["proxy"].update(nope=1), "unknown field 'nope'"),
-		(lambda d: d["proxy"].pop("upstream_key_file"), "upstream_key_file"),
 		(lambda d: d.update(banks={}), "at least one bank"),
 		(lambda d: d["banks"].update({"bad name": {"key_file": "k"}}), "bank name"),
 		(lambda d: d["banks"].update({"../x": {"key_file": "k"}}), "bank name"),
@@ -207,3 +206,16 @@ def test_makedirs_private_creates_every_new_level_0700(tmp_path):
 		assert stat.S_IMODE((existing / part).stat().st_mode) == 0o700
 	cfg.makedirs_private(existing / "a")  # idempotent
 	os.umask(0o022)
+
+
+def test_import_only_config_does_not_need_upstream_key(tmp_path):
+	data = base()
+	data["proxy"].pop("upstream_key_file")
+	config = parse(data, tmp_path)
+	assert config.proxy.upstream_key_file is None
+	assert config.routes == [("work", "~/code/work")]
+	with pytest.raises(cfg.ConfigError, match="upstream_key_file.*required"):
+		cfg.load_keys(config)
+	data["proxy"]["upstream_key_file"] = None
+	with pytest.raises(cfg.ConfigError, match="upstream_key_file"):
+		parse(data, tmp_path)

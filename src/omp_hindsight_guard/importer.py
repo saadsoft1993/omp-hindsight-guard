@@ -72,7 +72,9 @@ MAX_RESPONSE = 1 << 20
 # A document read-back carries the stored text (up to 1,000,000 characters, so up to 4 MB as UTF-8 and more with JSON
 # escapes) beside its metadata.
 MAX_DOCUMENT_RESPONSE = 16 << 20
-SKIP_REASONS = ("skip", "review", "excluded-label", "superseded", "expired", "empty")
+SKIP_REASONS = (
+	"skip", "review", "excluded-label", "superseded", "expired", "empty", "before-since", "unknown-time"
+)
 # Characters the proxy accepts in document ids and tags.
 _UNSAFE_IDENT = re.compile(r"[^A-Za-z0-9:_.\-/@ ]")
 # A document id must be readable back through the proxy, which takes one path segment of these characters only.
@@ -104,6 +106,7 @@ EXIT_LEDGER = 3
 EXIT_RESIDUAL = 4
 EXIT_CONFIRM = 5
 EXIT_BUSY = 6
+EXIT_QUARANTINE = 7
 # Statuses of GET /v1/default/banks/{bank}/operations/{id} (hindsight-api 1.2.0, OperationStatusResponse). Only
 # `completed` is success; `failed` and `cancelled` mean the operation did not finish (the document may still have
 # been created); `pending` and `processing` are open; `not_found` is a completed operation the server has pruned
@@ -143,6 +146,7 @@ class Row:
 	review: bool = False
 	missing_cwd: bool = False
 	residual: list[tuple[str, str, int]] = dataclasses.field(default_factory=list)
+	created: dt.datetime | None = None
 
 	@property
 	def key(self) -> tuple[str, str, str]:
@@ -343,6 +347,7 @@ def build_row(
 		session_id=clean(raw["session_id"]),
 		importance=clean(importance),
 		timestamp=iso(moment) if moment else None,
+		created=parse_time(raw["created_at"] if raw["created_at"] not in (None, "") else raw["timestamp"]),
 		superseded=bool(raw["superseded_by"]),
 		expired=valid_until is not None and valid_until < now,
 		redactions=counts,
@@ -418,8 +423,17 @@ def inherit_routing(bank_rows: list[Row], banks: routing.Banks) -> None:
 
 
 def skip_reason(
-	row: Row, include_review: bool, include_superseded: bool, exclude: Sequence[str]
+	row: Row,
+	include_review: bool,
+	include_superseded: bool,
+	exclude: Sequence[str],
+	since: dt.datetime | None = None,
 ) -> str | None:
+	if since is not None:
+		if row.created is None:
+			return "unknown-time"
+		if row.created < since:
+			return "before-since"
 	if row.bank is None and not row.review:
 		return "skip"
 	base = label_base(row.label).casefold()
@@ -438,12 +452,16 @@ def skip_reason(
 
 
 def select(
-	rows: Iterable[Row], include_review: bool, include_superseded: bool, exclude: Sequence[str]
+	rows: Iterable[Row],
+	include_review: bool,
+	include_superseded: bool,
+	exclude: Sequence[str],
+	since: dt.datetime | None = None,
 ) -> tuple[list[Row], list[tuple[Row, str]]]:
 	"""Rows to send, and the others with the reason they are not sent."""
 	chosen, skipped = [], []
 	for row in rows:
-		reason = skip_reason(row, include_review, include_superseded, exclude)
+		reason = skip_reason(row, include_review, include_superseded, exclude, since)
 		if reason is None:
 			chosen.append(row)
 		else:
@@ -772,6 +790,67 @@ def write_redacted(path: Path, requests: list[Request], force: bool) -> None:
 					json.dumps({"bank": entry["bank"], "item": item}, sort_keys=True, ensure_ascii=False)
 				)
 				fh.write("\n")
+
+
+def write_quarantine(state: Path, docs: list[Doc], conflicts: list[tuple[Row, str, str]]) -> int:
+	"""Record only opaque row identities and finding metadata, never memory content."""
+	conflict_by_row: dict[tuple[str, str, str], list[str]] = collections.defaultdict(list)
+	for row, _, why in conflicts:
+		conflict_by_row[row.key].append(why)
+	entries = []
+	held_keys = set()
+	for doc in docs:
+		for row in doc.members or [doc.row]:
+			held_keys.add(row.key)
+			entries.append({
+				"row": "@" + hashlib.sha256(json.dumps(row.key).encode()).hexdigest(),
+				"table": row.table,
+				"bank": row.bank,
+				"findings": [
+					{"kind": kind, "field": field, "offset": offset}
+					for field, kind, offset in row.residual
+				] + [{"kind": "ledger-" + why} for why in conflict_by_row[row.key]],
+			})
+	extra = 0
+	for row, _, why in conflicts:
+		if row.key not in held_keys:
+			entries.append({
+				"row": "@" + hashlib.sha256(json.dumps(row.key).encode()).hexdigest(),
+				"table": row.table,
+				"bank": row.bank,
+				"findings": [{"kind": "ledger-" + why}],
+			})
+			held_keys.add(row.key)
+			extra += 1
+	if not entries:
+		return 0
+	directory = state / "quarantine"
+	makedirs_private(directory)
+	os.chmod(directory, 0o700)
+	stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ-")
+	fd, name = tempfile.mkstemp(prefix=stamp, suffix=".json", dir=directory)
+	try:
+		with os.fdopen(fd, "w") as fh:
+			json.dump({"rows": entries}, fh, sort_keys=True)
+	except BaseException:
+		Path(name).unlink(missing_ok=True)
+		raise
+	return len(docs) + extra
+
+
+def write_last_run(state: Path, counts: dict[str, int]) -> None:
+	"""Atomically publish a private, counts-only summary."""
+	makedirs_private(state)
+	fd, name = tempfile.mkstemp(prefix=".last-run.", dir=state)
+	try:
+		with os.fdopen(fd, "w") as fh:
+			json.dump(counts, fh, sort_keys=True)
+			fh.flush()
+			os.fsync(fh.fileno())
+		os.replace(name, state / "last-run.json")
+	except BaseException:
+		Path(name).unlink(missing_ok=True)
+		raise
 
 
 def fmt_counts(counts: collections.Counter[str]) -> str:
@@ -1171,6 +1250,8 @@ def _main(
 	parser = argparse.ArgumentParser(prog="omp-hindsight-guard import", description=__doc__.splitlines()[0])
 	parser.add_argument("--config", type=Path, help="banks.json (default: the tool's config directory)")
 	parser.add_argument("--send", action="store_true", help="post to Hindsight (default: dry run)")
+	parser.add_argument("--unattended", action="store_true", help="send new rows and quarantine unsafe documents")
+	parser.add_argument("--since", metavar="ISO_TIME", help="only rows created at or after this time (UTC if naive)")
 	parser.add_argument(
 		"--confirm", metavar="DIGEST", help="digest printed by the dry run (required by --send)"
 	)
@@ -1214,6 +1295,20 @@ def _main(
 		help="print only unsynced=<n> (rows to send that the ledger lacks) and exit",
 	)
 	args = parser.parse_args(argv)
+	if args.since:
+		try:
+			since = dt.datetime.fromisoformat(args.since.replace("Z", "+00:00"))
+		except ValueError:
+			parser.error("--since must be an ISO-8601 date and time")
+		if since.tzinfo is None:
+			since = since.replace(tzinfo=dt.timezone.utc)
+	else:
+		since = None
+	if args.unattended and (args.count_unsynced or args.reconcile or args.confirm):
+		parser.error("--unattended cannot be combined with --count-unsynced, --reconcile or --confirm")
+	if args.unattended:
+		args.send = True
+		args.only_new = True
 	if args.count_unsynced and (args.send or args.write_redacted or args.reconcile):
 		parser.error("--count-unsynced takes no --send, --write-redacted or --reconcile")
 	if args.reconcile and (args.send or args.write_redacted):
@@ -1258,6 +1353,13 @@ def _main(
 	except (OSError, ValueError) as err:
 		print(f"ledger: {type(err).__name__}: {err}", file=sys.stderr)
 		return 2
+	counts = {"sent": 0, "quarantined": 0, "pending": len(ledger.pending)}
+	if args.unattended:
+		def publish_summary() -> None:
+			counts["pending"] = len(ledger.pending)
+			write_last_run(state, counts)
+
+		stack.callback(publish_summary)
 	real_opener = opener or build_opener()
 	if args.reconcile:
 		found = _load_overlays({e["bank"] for e in ledger.pending.values()}, overlays_path)
@@ -1276,15 +1378,29 @@ def _main(
 		)
 		return EXIT_LEDGER
 	ledger.store = store  # recorded with the next save
+	previous_failed = previous_unconfirmed = 0
+	if args.unattended and ledger.pending:
+		found = _load_overlays({e["bank"] for e in ledger.pending.values()}, overlays_path, strict=False) or {}
+		_, previous_failed, _, previous_unconfirmed = reconcile(ledger, found, real_opener, out)
+		save_ledger(ledger_path, ledger)
 	rows, empty = collect(root, home, banks, resolver, redact, scan, now)
 	exclude = [*config.importer.exclude_labels, *args.exclude_label]
-	chosen, skipped = select(rows, args.include_review, args.include_superseded, exclude)
+	chosen, skipped = select(rows, args.include_review, args.include_superseded, exclude, since)
 	unsynced = sum(not synced(row, ledger) for row in chosen)
 	if args.count_unsynced:
 		print(f"unsynced={unsynced}", file=out)
 		return 0
 	docs = dedupe(chosen)
 	conflicts = apply_ledger(docs, ledger, skipped)
+	if args.unattended:
+		conflict_keys = {row.key for row, _, _ in conflicts}
+		quarantined = [
+			doc for doc in docs
+			if any(member.residual or member.key in conflict_keys for member in doc.members or [doc.row])
+		]
+		counts["quarantined"] = write_quarantine(state, quarantined, conflicts)
+		held_docs = {id(doc) for doc in quarantined}
+		docs = [doc for doc in docs if id(doc) not in held_docs]
 	docs, held = unresolved(docs, ledger)
 	if held:  # a second send of these would overwrite the evidence of the first attempt
 		print(
@@ -1313,7 +1429,7 @@ def _main(
 	if not args.send:
 		if redacted_path is None:
 			return 0
-	elif args.confirm != current:
+	elif not args.unattended and args.confirm != current:
 		print("refused: --send needs --confirm equal to the digest above; nothing sent", file=out)
 		return EXIT_CONFIRM
 	elif redacted_path is None:
@@ -1327,7 +1443,7 @@ def _main(
 	print(f"redacted items written: {redacted_path}", file=out)
 	if not args.send:
 		return 0
-	if conflicts:
+	if conflicts and not args.unattended:
 		print(f"refused: {len(conflicts)} ledger conflict(s) above; nothing sent", file=out)
 		return EXIT_LEDGER
 	if residual_counts(m for d in docs for m in d.members or [d.row]):
@@ -1345,6 +1461,7 @@ def _main(
 		persist()
 
 	def on_accept(sent: list[Doc], operations: list[str]) -> None:
+		counts["sent"] += len(sent)
 		# Every request asks for asynchronous processing, so a reply without a usable operation id is not
 		# evidence of anything: the reservation stays, and `reconcile` asks the server about the document itself.
 		if operations:
@@ -1373,6 +1490,14 @@ def _main(
 	others = _load_overlays({e["bank"] for e in ledger.pending.values()}, overlays_path, strict=False) or {}
 	_, failed, _, unconfirmed = reconcile(ledger, overlays | others, real_opener, out)
 	persist()
+	if args.unattended:
+		print(
+			f"sent={counts['sent']} quarantined={counts['quarantined']} pending={len(ledger.pending)}",
+			file=out,
+		)
+		return code or (1 if failed or unconfirmed or previous_failed or previous_unconfirmed else 0) or (
+			EXIT_QUARANTINE if counts["quarantined"] else 0
+		)
 	return code or (1 if failed or unconfirmed else 0)
 
 

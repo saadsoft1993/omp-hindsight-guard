@@ -107,7 +107,7 @@ class ProxySettings:
 	listen_host: str
 	listen_port: int
 	upstream_url: str
-	upstream_key_file: Path
+	upstream_key_file: Path | None
 	allow_remote_listen: bool
 
 	@property
@@ -234,7 +234,7 @@ def parse_config(data: Any, path: Path) -> Config:
 		top["proxy"],
 		"proxy",
 		{"listen_host", "listen_port", "upstream_url", "upstream_key_file", "allow_remote_listen"},
-		{"upstream_key_file"},
+		set(),
 	)
 	port = raw.get("listen_port", DEFAULT_PORT)
 	if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
@@ -248,7 +248,9 @@ def parse_config(data: Any, path: Path) -> Config:
 		host,
 		port,
 		_text(raw.get("upstream_url", DEFAULT_UPSTREAM), "proxy.upstream_url"),
-		resolve_path(_text(raw["upstream_key_file"], "proxy.upstream_key_file"), base),
+		resolve_path(_text(raw["upstream_key_file"], "proxy.upstream_key_file"), base)
+		if "upstream_key_file" in raw
+		else None,
 		remote,
 	)
 	banks_raw = top["banks"]
@@ -362,6 +364,8 @@ class Keys:
 
 def load_keys(config: Config, banks: tuple[str, ...] | None = None) -> Keys:
 	"""Read the upstream key and the bank keys (all banks, or the named ones); every key must be distinct."""
+	if config.proxy.upstream_key_file is None:
+		raise ConfigError("proxy.upstream_key_file: required to load proxy keys")
 	upstream = read_key(config.proxy.upstream_key_file, "proxy.upstream_key_file")
 	wanted = [b for b in config.banks if banks is None or b.name in banks]
 	keys = {b.name: read_key(b.key_file, f"banks.{b.name}.key_file") for b in wanted}
