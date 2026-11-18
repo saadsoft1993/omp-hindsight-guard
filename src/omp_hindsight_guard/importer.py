@@ -313,6 +313,16 @@ def text_or_none(value: Any) -> str | None:
 	return None if value is None else str(value)
 
 
+def scan_row(row: Row, scan: Scanner) -> None:
+	"""Replace findings with a scan of the row's current, redacted fields."""
+	row.residual = [
+		(field, kind, offset)
+		for field in ("content", "source", "session_id", "importance", "tag")
+		if (text := getattr(row, field))
+		for kind, offset in scan(text)
+	]
+
+
 def build_row(
 	label: str,
 	raw: dict[str, Any],
@@ -363,10 +373,7 @@ def build_row(
 		review=route.missing_cwd
 		and route.bank is not None,  # the folder is gone: only today's roots place it
 	)
-	for field in ("content", "source", "session_id", "importance", "tag"):
-		text = getattr(row, field)
-		if text:
-			row.residual.extend((field, kind, offset) for kind, offset in scan(text))
+	scan_row(row, scan)
 	return row
 
 
@@ -399,6 +406,8 @@ def collect(
 			else:
 				empty += 1
 		inherit_routing(bank_rows, banks)
+		for row in bank_rows:
+			scan_row(row, scan)
 		rows.extend(bank_rows)
 	return rows, empty
 

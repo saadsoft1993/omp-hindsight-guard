@@ -321,6 +321,55 @@ def test_residual_scan_covers_every_redacted_field(world):
 	assert r1.residual == [("content", "high-entropy", 3), ("source", "high-entropy", 0)]
 
 
+def test_final_inherited_tags_are_scanned_before_quarantine(world):
+	marker = "residual-mark"
+	unsafe_cwd = world["home"] / "work" / "alpha-app" / marker
+	unsafe_cwd.mkdir()
+	conn = make_bank(
+		world["root"],
+		"unsafe-inheritance",
+		working=[{"id": "owner", "content": "unsafe owner", "meta": {"cwd": str(unsafe_cwd)}}],
+		episodic=[{"id": "orphan", "content": "unsafe orphan"}],
+	)
+	conn.close()
+	conn = make_bank(
+		world["root"],
+		"residual-mark-123",
+		working=[{"id": "safe-owner", "content": "safe owner", "meta": {"cwd": str(world["en"])}}],
+		episodic=[{"id": "safe-orphan", "content": "safe orphan"}],
+	)
+	conn.close()
+
+	def scan(text):
+		return [("high-entropy", text.index(marker))] if marker in text else []
+
+	rows, _ = im.collect(world["root"], world["home"], BANKS, fake_resolver, fake_redact, scan)
+	by_id = {r.id: r for r in rows}
+	for ident in ("owner", "orphan"):
+		assert by_id[ident].tag == f"project:{marker}"
+		assert by_id[ident].residual == [("tag", "high-entropy", len("project:"))]
+	assert by_id["safe-orphan"].tag == "project:alpha-app"
+	assert by_id["safe-orphan"].residual == []
+	im.scan_row(by_id["orphan"], scan)
+	assert by_id["orphan"].residual == [("tag", "high-entropy", len("project:"))]
+
+	write_overlays(world["overlays"])
+	opener = FakeOpener()
+	code, _ = run_main(world, "--unattended", opener=opener, scan=scan)
+	assert code == im.EXIT_QUARANTINE
+	assert opener.requests
+	for request in opener.requests:
+		for item in json.loads(request.data)["items"]:
+			for value in (item["content"], item["context"], *item["tags"], *item["metadata"].values()):
+				assert not scan(value)
+	assert any("safe orphan" in request.data.decode() for request in opener.requests)
+	(quarantine,) = (world["state"] / "quarantine").glob("*.json")
+	entries = json.loads(quarantine.read_text())["rows"]
+	assert {entry["table"] for entry in entries} == {"working_memory", "episodic_memory"}
+	assert len(entries) == 2
+	assert all(entry["findings"] == [{"kind": "high-entropy", "field": "tag", "offset": 8}] for entry in entries)
+
+
 def row(label, table, id_, bank, tag, content):
 	return im.Row(
 		label, table, id_, bank, tag, content, "src", None, "0.5", None, False, False, collections.Counter()
