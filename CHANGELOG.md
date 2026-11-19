@@ -3,11 +3,14 @@
 All notable changes are recorded here. The project follows semantic versioning; while it is `0.x`, minor versions
 may change configuration or behaviour, and the change is listed here.
 
-## Unreleased
+## 0.1.3 - 2026-11-19
 
 - Importer: add an unattended, only-new mode with pre- and post-send reconciliation, an inclusive creation-time
   cutoff, private redacted exports, counts-only last-run summaries and per-document quarantine for residual
   findings and ledger conflicts. Import-only configurations can omit the proxy upstream key.
+- Importer: each row of the sync report now ends with `sha=<sha256 of the redacted content>` and
+  `state=synced|waiting` (whether the ledger already records that row as sent). Scripts that parse the report see
+  two new tab-separated fields.
 
 ## 0.1.2 - 2026-11-17
 
