@@ -54,7 +54,7 @@ above (and the container run when you touch a hook or a script) before you open 
 what you ran. The tree check also has to pass:
 
 ```sh
-printf 'Saad bin Abid <saadsoft1993@gmail.com>\n' > /tmp/identities.txt
+printf 'Saad bin Abid <31469212+saadsoft1993@users.noreply.github.com>\n' > /tmp/identities.txt
 python tools/public-tree-check/public_tree_check.py . --no-history \
   --allowlist tools/public-tree-check/allowlist.txt \
   --exempt tools/public-tree-check/exemptions.json \
